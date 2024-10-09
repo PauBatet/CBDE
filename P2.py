@@ -45,7 +45,7 @@ def compute_cosine_similarity(a, b):
 def compute_similarities(selected_data, all_data):
     """
     Compute the top-2 similar sentences for each of the selected sentences
-    using cosine similarity and inner product.
+    using cosine similarity and inner product. Record time for each calculation.
     """
     selected_ids, selected_sentences, selected_embeddings = zip(*selected_data)
     all_ids, all_sentences, all_embeddings = zip(*all_data)
@@ -55,12 +55,22 @@ def compute_similarities(selected_data, all_data):
     all_embeddings = np.array([np.array(embedding) for embedding in all_embeddings])
 
     results = {}
+    cosine_times = []
+    inner_product_times = []
 
     # Iterate over each of the selected sentences
     for i, (selected_id, selected_embedding) in enumerate(zip(selected_ids, selected_embeddings)):
-        # Compute similarities against all sentences
+        # Compute cosine similarities
+        start_time = time.time()
         cosine_similarities = np.array([compute_cosine_similarity(selected_embedding, emb) for emb in all_embeddings])
+        cosine_time = time.time() - start_time
+        cosine_times.append(cosine_time)
+
+        # Compute inner products
+        start_time = time.time()
         inner_products = np.array([compute_inner_product(selected_embedding, emb) for emb in all_embeddings])
+        inner_product_time = time.time() - start_time
+        inner_product_times.append(inner_product_time)
 
         # Get the indices of the top-2 most similar sentences (excluding self)
         cosine_indices = np.argsort(cosine_similarities)[-3:-1]  # Top 2 (excluding self)
@@ -72,34 +82,35 @@ def compute_similarities(selected_data, all_data):
             'inner_product': [(all_ids[idx], all_sentences[idx]) for idx in inner_product_indices],
         }
 
-    return results
+    return results, cosine_times, inner_product_times
+
+def compute_statistics(times, label):
+    if times:
+        print(f"\n--- {label} Time Statistics ---")
+        print(f"Minimum Time: {np.min(times):.6f} seconds")
+        print(f"Maximum Time: {np.max(times):.6f} seconds")
+        print(f"Average Time: {np.mean(times):.6f} seconds")
+        print(f"Standard Deviation: {np.std(times):.6f} seconds")
+    else:
+        print(f"No {label} times recorded.")
 
 def main():
-    # Step 1: Load configuration and connect to the database
     config = load_config()
     conn = connect_to_db(config)
     if not conn:
         return
 
-    # Step 2: Select 10 sentence IDs (replace with actual IDs from your table)
     selected_sentence_ids = [10, 11, 12, 13, 14, 15, 16, 17, 18, 19]  # Replace with actual IDs
 
-    # Step 3: Fetch embeddings for the selected sentences and all sentences
     print("Fetching selected sentences...")
     selected_data = fetch_embeddings(conn, selected_sentence_ids)
 
     print("Fetching all 10k sentences...")
     all_data = fetch_embeddings(conn)
 
-    # Step 4: Compute similarities and measure time
     print("Computing similarities...")
-    start_time = time.time()
-    results = compute_similarities(selected_data, all_data)
-    end_time = time.time()
+    results, cosine_times, inner_product_times = compute_similarities(selected_data, all_data)
 
-    print(f"Time taken to compute similarities: {end_time - start_time:.2f} seconds")
-
-    # Step 5: Display results
     for sentence_id, similar_sentences in results.items():
         print(f"\nSentence ID {sentence_id}:")
         print(f"  Sentence: {similar_sentences['sentence']}")
@@ -111,6 +122,9 @@ def main():
         print("  Top 2 Inner Products:")
         for similar_id, similar_sentence in similar_sentences['inner_product']:
             print(f"    - ID: {similar_id}, Sentence: {similar_sentence}")
+
+    compute_statistics(cosine_times, "Cosine Similarity Calculation")
+    compute_statistics(inner_product_times, "Inner Product Calculation")
 
     # Close the database connection
     conn.close()

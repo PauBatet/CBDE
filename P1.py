@@ -3,6 +3,7 @@ from config import load_config
 from transformers import AutoTokenizer, AutoModel
 import torch
 import numpy as np
+import time
 
 BATCH_SIZE = 1000  # Number of sentences to process in each batch
 TOTAL_SENTENCES = 10000  # Total number of sentences to process (first 10k)
@@ -55,41 +56,50 @@ def generate_sentence_embeddings(sentences, model, tokenizer):
         embeddings = outputs.last_hidden_state.mean(dim=1)  # Take the mean of the hidden states
         return embeddings.numpy()  # Convert to numpy array
 
-def store_embeddings_batch(conn, sentence_embeddings):
-    """Update sentences in the database with their corresponding embeddings."""
+def store_embedding(conn, sentence_id, embedding):
+    """Update a single sentence in the database with its corresponding embedding."""
     try:
         with conn.cursor() as cur:
-            for sentence_id, embedding in sentence_embeddings.items():
-                cur.execute("""
-                    UPDATE bookcorpus_sentences 
-                    SET embedding = %s 
-                    WHERE id = %s;
-                """, (embedding.tolist(), sentence_id))
+            cur.execute("""
+                UPDATE bookcorpus_sentences 
+                SET embedding = %s 
+                WHERE id = %s;
+            """, (embedding.tolist(), sentence_id))
             conn.commit()
-            print(f"Stored embeddings for {len(sentence_embeddings)} sentences.")
     except Exception as e:
-        print(f"Failed to store embeddings: {e}")
+        print(f"Failed to store embedding for sentence ID {sentence_id}: {e}")
         conn.rollback()
 
+def compute_statistics(times, label):
+    """Compute and display statistics for the recorded times."""
+    if times:
+        print(f"\n--- {label} Time Statistics ---")
+        print(f"Minimum Time: {np.min(times):.6f} seconds")
+        print(f"Maximum Time: {np.max(times):.6f} seconds")
+        print(f"Average Time: {np.mean(times):.6f} seconds")
+        print(f"Standard Deviation: {np.std(times):.6f} seconds")
+    else:
+        print(f"No {label} times recorded.")
+
 def main():
-    # Step 1: Load configuration and connect to the database
     config = load_config()
     conn = connect_to_db(config)
     if not conn:
         return
 
-    # Step 2: Add an embedding column to the table if it doesn't exist
     add_embedding_column(conn)
 
-    # Step 3: Load the model and tokenizer
     model_name = 'sentence-transformers/all-MiniLM-L6-v2'
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModel.from_pretrained(model_name)
 
-    # Step 4: Process embeddings in batches
     print(f"Processing up to {TOTAL_SENTENCES} sentences in batches of {BATCH_SIZE}...")
     offset = 0
     total_processed = 0
+
+    # Lists to store time taken for generating embeddings and storing in the database
+    embedding_times = []
+    storage_times = []
 
     while total_processed < TOTAL_SENTENCES:
         # Fetch a batch of sentences
@@ -100,21 +110,28 @@ def main():
 
         sentence_ids, sentences = zip(*sentences_data)
 
-        # Generate embeddings for the current batch
+        # Measure time for generating embeddings
         print(f"Generating embeddings for batch starting at offset {offset}...")
+        start_time = time.time()
         sentence_embeddings = generate_sentence_embeddings(sentences, model, tokenizer)
+        embedding_time = time.time() - start_time
+        embedding_times.append(embedding_time)
 
-        # Map sentence IDs to embeddings
-        sentence_embeddings_dict = {sentence_id: embedding for sentence_id, embedding in zip(sentence_ids, sentence_embeddings)}
-
-        # Store embeddings in the database
-        store_embeddings_batch(conn, sentence_embeddings_dict)
+        # Store embeddings one by one and measure time
+        for sentence_id, embedding in zip(sentence_ids, sentence_embeddings):
+            start_time = time.time()
+            store_embedding(conn, sentence_id, embedding)
+            storage_time = time.time() - start_time
+            storage_times.append(storage_time)
 
         # Update counters and offset
         total_processed += len(sentences_data)
         offset += len(sentences_data)
 
         print(f"Processed {total_processed} sentences so far.")
+
+    compute_statistics(embedding_times, "Embedding Generation")
+    compute_statistics(storage_times, "Database Storage (Single Inserts)")
 
     # Close the database connection
     conn.close()
