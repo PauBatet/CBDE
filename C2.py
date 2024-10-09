@@ -6,9 +6,9 @@ from datasets import load_dataset
 client = chromadb.PersistentClient(path="./")
 
 # Step 2: Create a collection in Chroma (equivalent to a table)
-def create_collection(collection_name, distance_metric):
+def create_collection(collection_name):
     try:
-        collection = client.get_or_create_collection(name=collection_name, metadata={"hnsw:space": distance_metric})
+        collection = client.get_or_create_collection(name=collection_name)
         print(f"Collection '{collection_name}' created successfully.")
         return collection
     except Exception as e:
@@ -31,7 +31,7 @@ def load_and_split_bookcorpus():
 # Step 5: Insert the sentences into the Chroma collection
 def insert_sentences_into_chroma(collection, sentences):
     try:
-        batch_size = 500  # Define the batch size
+        batch_size = 1  # Define the batch size
         for i in range(0, len(sentences), batch_size):
             batch_sentences = sentences[i:i+batch_size]  # Slice sentences into batches of 500
             batch_ids = [str(j) for j in range(i, i + len(batch_sentences))]  # Generate IDs for the current batch
@@ -67,38 +67,20 @@ if __name__ == "__main__":
     client = chromadb.Client()
 
     # Step 2: Create or connect to a collection
-    collection_name1 = "bookcorpus_sentences1"
-    collection_name2 = "bookcorpus_sentences2"
-    collection1 = create_collection(collection_name1, "cosine")
-    collection2 = create_collection(collection_name2, "ip")
+    collection_name = "bookcorpus_sentences"
+    collection = create_collection(collection_name)
     selected_sentence_ids = [10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
 
-    if collection1:
+    if collection:
 
         # Step 4: Load and split the BookCorpus dataset into sentences
         sentences = load_and_split_bookcorpus()
 
         # Step 5: Insert the sentences into Chroma (adjust the number based on memory limits)
-        insert_sentences_into_chroma(collection1, sentences[:10000])
+        insert_sentences_into_chroma(collection, sentences[:10000])
 
         # Step 6: Query for the top-2 similar sentences for each selected sentence
-        results = query_top_similar_for_selected(collection1, sentences, selected_sentence_ids, n_results=2)
-        print("Top 2 similar sentences for each selected sentence:")
-        for query_sentence, similar_sentences in results.items():
-            print(f"Query Sentence: {query_sentence}")
-            print(f"Similar Sentences: {similar_sentences}")
-            print("-" * 80)
-
-    if collection2:
-
-        # Step 4: Load and split the BookCorpus dataset into sentences
-        sentences = load_and_split_bookcorpus()
-
-        # Step 5: Insert the sentences into Chroma (adjust the number based on memory limits)
-        insert_sentences_into_chroma(collection2, sentences[:10000])
-
-        # Step 6: Query for the top-2 similar sentences for each selected sentence
-        results = query_top_similar_for_selected(collection2, sentences, selected_sentence_ids, n_results=2)
+        results = query_top_similar_for_selected(collection, sentences, selected_sentence_ids, n_results=2)
         print("Top 2 similar sentences for each selected sentence:")
         for query_sentence, similar_sentences in results.items():
             print(f"Query Sentence: {query_sentence}")
